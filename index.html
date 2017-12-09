@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html><head><title>Laser Show</title><style>#clock {padding: 10px; border:1px solid #000000; } </style> </head><body><canvas id="clock" width="600" height="600"></canvas>
+<script>
+
+Math.TAU = 2 * Math.PI;
+
+const canvas1 = document.querySelector("#clock");
+const context1 = canvas1.getContext("2d");
+context1.lineWidth = 1;
+context1.strokeStyle = '#DD0000';
+const opts = {
+  centerX: canvas1.width / 2,
+  centerY: canvas1.height / 2,
+  radius: 300
+};
+
+function drawBeam(context1, progress, options) {
+  const {centerX, centerY, radius} = options;
+  const armRadians = (Math.TAU * progress) - (Math.TAU/4);
+  const armLength = 2* radius;
+  const targetX = centerX + Math.cos(armRadians) * armLength;
+  const targetY = centerY + Math.sin(armRadians) * armLength;
+  context1.beginPath();
+  context1.moveTo(centerX, centerY); // Start at the center
+  context1.lineTo(targetX, targetY); // Draw a line outwards
+  context1.stroke();
+}
+
+const RPS = 100;
+const usPerRevolution = (1000 * 1000) / RPS;
+const usStartTime = window.performance.now() * 1000;
+
+// Set up buffers
+const bufSize = 2000;
+const angles = [];
+const times = [];
+for (let i = 0; i < bufSize; i++) {
+  angles[i] = -1;
+  times[i] = null;
+}
+
+// Compute all the beam angles for a sequence of increments 
+// between last time and now
+let rollingIndex = 0;
+function update() {
+  const usNow =  window.performance.now() * 1000;
+  if (rollingIndex === 0) {
+    const usDelta = (usNow - usStartTime) % usPerRevolution;
+    angles[rollingIndex % bufSize] = usDelta / usPerRevolution;
+    times[rollingIndex % bufSize] = usNow;
+    rollingIndex++;  
+  } else {
+    const usPrev = times[(rollingIndex - 1) % bufSize];
+    let usStep = usPrev;
+    do {
+      const usDelta = (usStep - usStartTime) % usPerRevolution;
+      angles[rollingIndex % bufSize] = usDelta / usPerRevolution;
+      times[rollingIndex % bufSize] = usStep;
+      usStep += 11;
+      rollingIndex++;
+      if (rollingIndex === 2*bufSize) {
+        rollingIndex = bufSize;
+      }
+    } while (usStep <= usNow)
+  }
+}
+
+// Draw the last N milliseconds worth of beams
+function draw() {
+  if (!isStarted) {
+    return;
+  }
+  context1.clearRect(0,0,600,600);
+  const usNow = window.performance.now() * 1000;
+  let index = rollingIndex;
+  do {
+    const angle = angles[index % bufSize];
+    if (angle > -1) {
+      drawBeam(context1, angle, opts);
+    }
+    index--;
+  } while (times[index % bufSize] > usNow - 20000);
+}
+
+////////////////////////////////
+
+let isStarted = false;
+document.addEventListener('DOMContentLoaded', start);
+
+function start() {
+  let updateInterval = null;
+  let drawInterval = null;
+  function toggle() {
+    if (isStarted) {
+      clearInterval(updateInterval);
+      clearInterval(drawInterval);
+      updateInterval = null;
+      drawInterval = null;
+      isStarted = false;
+    } else {
+      isStarted = true;
+      updateInterval = setInterval(update, 7);
+      drawInterval = setInterval(draw, 11);
+    }
+  }
+
+  canvas1.addEventListener('click', toggle, false);
+  toggle();
+}
+
+</script></body></html>
