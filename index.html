@@ -162,9 +162,6 @@ class BeamBufferCursor {
       throw new Error('wtf1');
     }
     const isOn = this.buffer.values[this.cursor % this.buffer.size];
-    //if (!isOn && (position < .20 || position > .8)) {
-    //  throw new Error('wtf2');
-    //}
     return isOn;
   }
 }
@@ -173,6 +170,32 @@ class BeamBufferCursor {
 class HalfDiskShow extends BeamBuffer {
   computeValue(position) {
     if (position < .25 || position > .75) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+
+class SunRayShow extends BeamBuffer {
+  computeValue(position) {
+    if (position < .1) {
+      return true;
+    } else if (position < .2) {
+      return false;
+    } else if (position < .3) {
+      return true;
+    } else if (position < .4) {
+      return false;
+    } else if (position < .5) {
+      return true;
+    } else if (position < .6) {
+      return false;
+    } else if (position < .7) {
+      return true;
+    } else if (position < .8) {
+      return false;
+    } else if (position < .9) {
       return true;
     } else {
       return false;
@@ -198,7 +221,7 @@ function start() {
       isStarted = true;
       const usStartTime = window.performance.now() * 1000;
       const beamBuffer = new BeamAngleBuffer(size, 17, usStartTime, usPerRevolution);
-      const showBuffer = new HalfDiskShow(size, 23, usStartTime, usPerRevolution);
+      const showBuffer = new SunRayShow(size, 23, usStartTime, usPerRevolution);
       updateInterval = setInterval(function() {
         const usNow =  window.performance.now() * 1000;
         showBuffer.update(usNow);
