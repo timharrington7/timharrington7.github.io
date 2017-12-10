@@ -1,13 +1,17 @@
 <!DOCTYPE html>
-<html><head><title>Laser Show</title><style>#clock {padding: 10px; border:1px solid #000000; } </style> </head><body><canvas id="clock" width="600" height="600"></canvas>
-<script>
+<html><head><title>Laser Show</title><style>#clock {padding: 10px; border:1px solid #000000; } </style> </head><body>
+<h1>Laser tower simulator</h1>
+<p>Click the canvas to pause the simulation</p>
+<canvas id="clock" width="600" height="600"></canvas>
 
+<script>
 Math.TAU = 2 * Math.PI;
-const RPS = 10;
-const bufSize = 1000;
+const RPS = 100;
+const size = 3000;
+const usPerRevolution = (1000 * 1000) / RPS;
 
 class LaserSystem {
-  constructor(canvas) {
+  constructor(canvas, usRenderDelay, usRenderWindow) {
     this.centerX = canvas.width / 2;
     this.centerY = canvas.height / 2;
     const context = canvas.getContext("2d");
@@ -15,6 +19,8 @@ class LaserSystem {
     context.strokeStyle = '#DD0000';
     this.radius = canvas.width / 2;
     this.context = context;
+    this.usRenderWindow = usRenderWindow;
+    this.usRenderDelay = usRenderDelay;
   }
   _paintBeam(progress) {
     const radians = (Math.TAU * progress) - (Math.TAU/4);
@@ -26,172 +32,160 @@ class LaserSystem {
     this.context.lineTo(targetX, targetY); // Draw a line outwards
     this.context.stroke();
   }
-  draw(beamBuffer, onOffBuffer) {
+  draw(beamBuffer, showBuffer) {
     this.context.clearRect(0,0,600,600);
     const usNow = window.performance.now() * 1000;   
-    const usStart = usNow - (10 * 1000);
-    const usEnd = usNow - (5 * 1000);
-    const cursor = new OnOffCursor(onOffBuffer, usStart)
-    beamBuffer.playBeams(usStart, usEnd, (x, usTime) => {
-      if (cursor.isOn(usTime)) {
-        this._paintBeam(x);
+    const usEnd = usNow - this.usRenderDelay;
+    const usStart = usNow - this.usRenderDelay - this.usRenderWindow;
+    const cursor = new BeamBufferCursor(showBuffer, usStart)
+    beamBuffer.playBeams(usStart, usEnd, (position, usTime) => {
+      if (cursor.isOn(usTime, position)) {
+        this._paintBeam(position);
       }
     });
   }
 }
 
-class BeamAngleBuffer {
-  constructor(bufSize, usStepSize, usStartTime, usPerRevolution) {
+class BeamBuffer {
+  constructor(bufferSize, usStepSize, usStartTime, usPerRevolution) {
     this.usPerRevolution = usPerRevolution;
-    this.bufSize = bufSize;
+    this.size = bufferSize;
     this.usStartTime = usStartTime;
-    this.angles = [];
+    this.values = [];
     this.times = [];
-    for (let i = 0; i < bufSize; i++) {
-      this.angles[i] = -1;
+    for (let i = 0; i < size; i++) {
+      this.values[i] = false;
       this.times[i] = null;
     }
     this.curIndex = 0;
     this.usStepSize = usStepSize;
-  }
-  playBeams(usStart, usEnd, cb) {
-    let endIndex = this.curIndex;
-    let index = this.curIndex;
-    do {
-      index--;
-    } while (this.times[index % this.bufSize] > usStart)
-    index++;
-    do {
-      const t = this.times[index];
-      const angle = this.angles[index % this.bufSize];
-      if (angle > -1) {
-        cb(angle, t);
-      }
-      index++;
-    } while (index < endIndex && this.times[index % this.bufSize] < usEnd);
-  }
-  // Compute all the beam angles for a sequence of increments 
-  // between last time and now
+  }  
   update(usNow) {
     if (this.curIndex === 0) {
       const usDelta = (usNow - this.usStartTime) % this.usPerRevolution;
-      this.angles[this.curIndex % this.bufSize] = usDelta / this.usPerRevolution;
-      this.times[this.curIndex % this.bufSize] = usNow;
+      this.values[this.curIndex] = this.computeValue(usDelta / this.usPerRevolution);
+      this.times[this.curIndex] = usNow;
       this.curIndex++;
     } else {
-      const usPrev = this.times[(this.curIndex - 1) % this.bufSize];
+      const usPrev = this.times[(this.curIndex - 1) % this.size];
       let usStep = usPrev + this.usStepSize;
       do {
-        const usStepSize = getRandomInt(this.usStepSize - 2, this.usStepSize + 2);
         const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
-        this.angles[this.curIndex % this.bufSize] = usDelta / this.usPerRevolution;
-        this.times[this.curIndex % this.bufSize] = usStep;
-        usStep += usStepSize;
+        this.values[this.curIndex % this.size] = this.computeValue(usDelta / this.usPerRevolution);
+        this.times[this.curIndex % this.size] = usStep;
+        usStep += this.usStepSize;
         this.curIndex++;
-        if (this.curIndex === 2 * this.bufSize) {
-          this.curIndex = this.bufSize;
+        if (this.curIndex === 2 * this.size) {
+          this.curIndex = this.size;
         }
       } while (usStep <= usNow)
     }
   }
+  computeValue(position) {
+    throw new Error('not implemented in base class');
+  }
 }
 
-class OnOffCursor {
-  constructor(onOffBuffer, usStart) {
-    this.buf = onOffBuffer;
-    this.cursor = onOffBuffer.curIndex;
+// Compute the beam progress around the circle (expressed as a value between 0
+// and 1) every few microseconds
+class BeamAngleBuffer extends BeamBuffer {
+  playBeams(usStart, usEnd, cb) {
+    let endIndex = this.curIndex;
+    let index = this.curIndex;
+    // Find the first beam with time > usStart
+    do {
+      index--;
+    } while (this.times[index % this.size] > usStart)
+    index++;
+    // Play the beams until the buffer runs out or a
+    // beam with time > usEnd is reached
+    do {
+      const angle = this.values[index % this.size];
+      if (angle > -1) {
+        cb(angle, this.times[index % this.size]);
+      }
+      index++;
+    } while (index < endIndex && this.times[index % this.size] < usEnd);
+  }
+  computeValue(position) {
+    return position;
+  }
+}
+
+class BeamBufferCursor {
+  constructor(showBuffer, usStart) {
+    this.buffer = showBuffer;
+    this.cursor = showBuffer.curIndex;
     this.seek(usStart);
   }
+  decrement() {
+    if ((this.buffer.curIndex % this.buffer.size) === ((this.cursor - 1) % this.buffer.size)) {
+      return false;
+    }
+    this.cursor--;
+  }
+  increment() {
+    if ((this.buffer.curIndex % this.buffer.size) === ((this.cursor + 1) % this.buffer.size)) {
+      return false;
+    }
+    this.cursor++;
+  }
   seek(usStep) {
-    if (this.buf.times[this.cursor % this.buf.bufSize] > usStep) {
-      while (this.buf.times[this.cursor % this.buf.bufSize] > usStep) {
-        if (this.buf.times[(this.cursor - 1) % this.buf.bufSize]) {
-          this.cursor--;
-        } else {
+    if (this.buffer.times[this.cursor % this.buffer.size] > usStep) {
+      //console.log('case 1');
+      while (this.buffer.times[this.cursor % this.buffer.size] >= usStep) {
+        if (!this.decrement()) {
           break;
         }
       }
-    } else if (this.buf.times[this.cursor % this.buf.bufSize] === usStep) {
-      // hit
-    } else if (this.buf.times[this.cursor % this.buf.bufSize] < usStep) {
-      while (this.buf.times[this.cursor % this.buf.bufSize] < usStep) {
-        if (this.cursor === this.buf.curIndex) {
-          break;
-        }
-        if (this.buf.times[this.cursor % this.buf.bufSize]) {
-          this.cursor++;
-        } else {
+    } else if (this.buffer.times[this.cursor % this.buffer.size] === usStep) {
+      //console.log('case 2');
+      while (this.buffer.times[this.cursor % this.buffer.size] === usStep) {
+        if (!this.decrement()) {
           break;
         }
       }
-      if (this.buf.times[(this.cursor - 1) % this.buf.bufSize]) {
-        this.cursor--;
+    } else if (this.buffer.times[this.cursor % this.buffer.size] < usStep) {
+      //console.log('case 3');
+      while (this.buffer.times[this.cursor % this.buffer.size] <= usStep) {
+        if (!this.increment()) {
+          break;
+        }
       }
+      this.seek(usStep);
     }
   }
-  isOn(usBeamTime) {
+  isOn(usBeamTime, position) {
     this.seek(usBeamTime);
-    return this.buf.isOn[this.cursor % this.buf.bufSize];
+    const bufferTime = this.buffer.times[this.cursor % this.buffer.size];
+    if (bufferTime >= usBeamTime && this.buffer.times[(this.cursor - 1) % this.buffer.size]) {
+      throw new Error('wtf1');
+    }
+    const isOn = this.buffer.values[this.cursor % this.buffer.size];
+    //if (!isOn && (position < .20 || position > .8)) {
+    //  throw new Error('wtf2');
+    //}
+    return isOn;
   }
 }
 
-class OnOffBuffer {
-  constructor(bufSize, usStartTime, usPerRevolution) {
-    this.usPerRevolution = usPerRevolution;
-    this.bufSize = bufSize;
-    this.usStartTime = usStartTime;
-    this.isOn = [];
-    this.times = [];
-    for (let i = 0; i < bufSize; i++) {
-      this.isOn[i] = false;
-      this.times[i] = null;
-    }
-    this.curIndex = 0;
-    this.usStepSize = 7;
-  }
-  _isOn(position) {
-    if (position > .25 && position < .75) {
+// Compute the on/off status of the laser every few microseconds
+class HalfDiskShow extends BeamBuffer {
+  computeValue(position) {
+    if (position < .25 || position > .75) {
       return true;
     } else {
       return false;
     }
   }
-  // Compute the on/off status for a sequence of increments between last time
-  // and now
-  update(usNow) {
-    if (this.curIndex === 0) {
-      const usDelta = (usNow - this.usStartTime) % this.usPerRevolution;
-      this.isOn[this.curIndex] = this._isOn(usDelta / this.usPerRevolution);
-      this.times[this.curIndex] = usNow;
-      this.curIndex++;
-    } else {
-      const usPrev = this.times[(this.curIndex - 1) % this.bufSize];
-      let usStep = usPrev + this.usStepSize;
-      do {
-        const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
-        this.isOn[this.curIndex % this.bufSize] = this._isOn(usDelta / this.usPerRevolution);
-        this.times[this.curIndex % this.bufSize] = usStep;
-        usStep += this.usStepSize;
-        this.curIndex++;
-        if (this.curIndex === 2 * this.bufSize) {
-          this.curIndex = this.bufSize;
-        }
-      } while (usStep <= usNow)
-    }
-  }
 }
-
-//class GenericBuffer
-
 
 function start() {
   const canvas1 = document.querySelector("#clock");
-  const usPerRevolution = (1000 * 1000) / RPS;
-
   let updateInterval = null;
   let drawInterval = null;
   let isStarted = false;
-  const laserSystem = new LaserSystem(canvas1);
+  const laserSystem = new LaserSystem(canvas1, 25 * 1000, 20 * 1000);
 
   function toggle() {
     if (isStarted) {
@@ -203,29 +197,36 @@ function start() {
     } else {
       isStarted = true;
       const usStartTime = window.performance.now() * 1000;
-      const beamBuffer = new BeamAngleBuffer(bufSize, usStartTime, usPerRevolution);
-      const onOffBuffer = new OnOffBuffer(bufSize, usStartTime, usPerRevolution);
+      const beamBuffer = new BeamAngleBuffer(size, 17, usStartTime, usPerRevolution);
+      const showBuffer = new HalfDiskShow(size, 23, usStartTime, usPerRevolution);
       updateInterval = setInterval(function() {
         const usNow =  window.performance.now() * 1000;
-        onOffBuffer.update(usNow);
+        showBuffer.update(usNow);
         beamBuffer.update(usNow);
       }, 5);
       drawInterval = setInterval(function() {
-        laserSystem.draw(beamBuffer, onOffBuffer);
-      }, 20);
+        laserSystem.draw(beamBuffer, showBuffer);
+      }, 5);
     }
   }
   canvas1.addEventListener('click', toggle, false);
   toggle();
 }
 
-// min inclusive, max exclusive
-function getRandomInt(min, max) {
-  min = Math.ceil(min);
-  max = Math.floor(max);
-  return Math.floor(Math.random() * (max - min)) + min; //The maximum is exclusive and the minimum is inclusive
-}
-
 document.addEventListener('DOMContentLoaded', start);
+</script>
 
-</script></body></html>
+<h3>How it works</h3>
+<p>One function continuously computes a buffer of beam positions and times at the
+microsecond resolution given how fast the beam is spinning. A second function
+continuously computes the laser on/off status at the microsecond resolution. A
+third function continuously renders the last 10ms worth of beams, considering
+whether the laser is on or off at the time the beam is to be shown. Being off
+suppresses the beam from rendering. The simulated laser is spinning at 100
+revolutions per second (RPS).
+
+The first function simulates the physical laser and the mirror spinning at 100
+RPS. The second function simulates the arduino sending a TTL signal to the
+laser (in the form of a "turn the beam off" command).
+</p>
+</body></html>
