@@ -3,11 +3,8 @@
 <script>
 
 Math.TAU = 2 * Math.PI;
-const RPS = 100;
-const bufSize = 2000;
-
-const canvas1 = document.querySelector("#clock");
-const usPerRevolution = (1000 * 1000) / RPS;
+const RPS = 10;
+const bufSize = 1000;
 
 class LaserSystem {
   constructor(canvas) {
@@ -29,18 +26,25 @@ class LaserSystem {
     this.context.lineTo(targetX, targetY); // Draw a line outwards
     this.context.stroke();
   }
-  draw(beamBuffer) {
+  draw(beamBuffer, onOffBuffer) {
     this.context.clearRect(0,0,600,600);
     const usNow = window.performance.now() * 1000;   
-    const usStart = usNow - (20 * 1000);
-    beamBuffer.playBeams(usStart, x => this._paintBeam(x));
+    const usStart = usNow - (10 * 1000);
+    const usEnd = usNow - (5 * 1000);
+    const cursor = new OnOffCursor(onOffBuffer, usStart)
+    beamBuffer.playBeams(usStart, usEnd, (x, usTime) => {
+      if (cursor.isOn(usTime)) {
+        this._paintBeam(x);
+      }
+    });
   }
 }
 
-class BeamBuffer {
-  constructor(bufSize, usPerRevolution) {
+class BeamAngleBuffer {
+  constructor(bufSize, usStepSize, usStartTime, usPerRevolution) {
+    this.usPerRevolution = usPerRevolution;
     this.bufSize = bufSize;
-    this.usStartTime = window.performance.now() * 1000;
+    this.usStartTime = usStartTime;
     this.angles = [];
     this.times = [];
     for (let i = 0; i < bufSize; i++) {
@@ -48,57 +52,145 @@ class BeamBuffer {
       this.times[i] = null;
     }
     this.curIndex = 0;
-    this.displayIndex = 0;
+    this.usStepSize = usStepSize;
   }
-  playBeams(usStart, cb) {
+  playBeams(usStart, usEnd, cb) {
     let endIndex = this.curIndex;
     let index = this.curIndex;
     do {
       index--;
     } while (this.times[index % this.bufSize] > usStart)
+    index++;
     do {
       const t = this.times[index];
       const angle = this.angles[index % this.bufSize];
       if (angle > -1) {
-        cb(angle);
+        cb(angle, t);
       }
       index++;
-    } while (index < endIndex);
+    } while (index < endIndex && this.times[index % this.bufSize] < usEnd);
   }
   // Compute all the beam angles for a sequence of increments 
   // between last time and now
-  update() {
-    const usNow =  window.performance.now() * 1000;
-    const oldCurIndex = this.curIndex;
+  update(usNow) {
     if (this.curIndex === 0) {
-      const usDelta = (usNow - this.usStartTime) % usPerRevolution;
-      this.angles[this.curIndex % bufSize] = usDelta / usPerRevolution;
-      this.times[this.curIndex % bufSize] = usNow;
+      const usDelta = (usNow - this.usStartTime) % this.usPerRevolution;
+      this.angles[this.curIndex % this.bufSize] = usDelta / this.usPerRevolution;
+      this.times[this.curIndex % this.bufSize] = usNow;
       this.curIndex++;
     } else {
-      const usPrev = this.times[(this.curIndex - 1) % bufSize];
-      let usStep = usPrev;
+      const usPrev = this.times[(this.curIndex - 1) % this.bufSize];
+      let usStep = usPrev + this.usStepSize;
       do {
-        const usDelta = (usStep - this.usStartTime) % usPerRevolution;
-        this.angles[this.curIndex % bufSize] = usDelta / usPerRevolution;
-        this.times[this.curIndex % bufSize] = usStep;
-        usStep += 11;
+        const usStepSize = getRandomInt(this.usStepSize - 2, this.usStepSize + 2);
+        const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
+        this.angles[this.curIndex % this.bufSize] = usDelta / this.usPerRevolution;
+        this.times[this.curIndex % this.bufSize] = usStep;
+        usStep += usStepSize;
         this.curIndex++;
-        if (this.curIndex === 2 * bufSize) {
-          this.curIndex = bufSize;
+        if (this.curIndex === 2 * this.bufSize) {
+          this.curIndex = this.bufSize;
         }
       } while (usStep <= usNow)
     }
-    this.displayIndex = oldCurIndex;
   }
 }
 
+class OnOffCursor {
+  constructor(onOffBuffer, usStart) {
+    this.buf = onOffBuffer;
+    this.cursor = onOffBuffer.curIndex;
+    this.seek(usStart);
+  }
+  seek(usStep) {
+    if (this.buf.times[this.cursor % this.buf.bufSize] > usStep) {
+      while (this.buf.times[this.cursor % this.buf.bufSize] > usStep) {
+        if (this.buf.times[(this.cursor - 1) % this.buf.bufSize]) {
+          this.cursor--;
+        } else {
+          break;
+        }
+      }
+    } else if (this.buf.times[this.cursor % this.buf.bufSize] === usStep) {
+      // hit
+    } else if (this.buf.times[this.cursor % this.buf.bufSize] < usStep) {
+      while (this.buf.times[this.cursor % this.buf.bufSize] < usStep) {
+        if (this.cursor === this.buf.curIndex) {
+          break;
+        }
+        if (this.buf.times[this.cursor % this.buf.bufSize]) {
+          this.cursor++;
+        } else {
+          break;
+        }
+      }
+      if (this.buf.times[(this.cursor - 1) % this.buf.bufSize]) {
+        this.cursor--;
+      }
+    }
+  }
+  isOn(usBeamTime) {
+    this.seek(usBeamTime);
+    return this.buf.isOn[this.cursor % this.buf.bufSize];
+  }
+}
+
+class OnOffBuffer {
+  constructor(bufSize, usStartTime, usPerRevolution) {
+    this.usPerRevolution = usPerRevolution;
+    this.bufSize = bufSize;
+    this.usStartTime = usStartTime;
+    this.isOn = [];
+    this.times = [];
+    for (let i = 0; i < bufSize; i++) {
+      this.isOn[i] = false;
+      this.times[i] = null;
+    }
+    this.curIndex = 0;
+    this.usStepSize = 7;
+  }
+  _isOn(position) {
+    if (position > .25 && position < .75) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+  // Compute the on/off status for a sequence of increments between last time
+  // and now
+  update(usNow) {
+    if (this.curIndex === 0) {
+      const usDelta = (usNow - this.usStartTime) % this.usPerRevolution;
+      this.isOn[this.curIndex] = this._isOn(usDelta / this.usPerRevolution);
+      this.times[this.curIndex] = usNow;
+      this.curIndex++;
+    } else {
+      const usPrev = this.times[(this.curIndex - 1) % this.bufSize];
+      let usStep = usPrev + this.usStepSize;
+      do {
+        const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
+        this.isOn[this.curIndex % this.bufSize] = this._isOn(usDelta / this.usPerRevolution);
+        this.times[this.curIndex % this.bufSize] = usStep;
+        usStep += this.usStepSize;
+        this.curIndex++;
+        if (this.curIndex === 2 * this.bufSize) {
+          this.curIndex = this.bufSize;
+        }
+      } while (usStep <= usNow)
+    }
+  }
+}
+
+//class GenericBuffer
+
+
 function start() {
+  const canvas1 = document.querySelector("#clock");
+  const usPerRevolution = (1000 * 1000) / RPS;
+
   let updateInterval = null;
   let drawInterval = null;
   let isStarted = false;
-
-  const beamBuffer = new BeamBuffer(bufSize, usPerRevolution)
   const laserSystem = new LaserSystem(canvas1);
 
   function toggle() {
@@ -110,16 +202,28 @@ function start() {
       isStarted = false;
     } else {
       isStarted = true;
+      const usStartTime = window.performance.now() * 1000;
+      const beamBuffer = new BeamAngleBuffer(bufSize, usStartTime, usPerRevolution);
+      const onOffBuffer = new OnOffBuffer(bufSize, usStartTime, usPerRevolution);
       updateInterval = setInterval(function() {
-        beamBuffer.update();
+        const usNow =  window.performance.now() * 1000;
+        onOffBuffer.update(usNow);
+        beamBuffer.update(usNow);
       }, 5);
       drawInterval = setInterval(function() {
-        laserSystem.draw(beamBuffer);
-      }, 13);
+        laserSystem.draw(beamBuffer, onOffBuffer);
+      }, 20);
     }
   }
   canvas1.addEventListener('click', toggle, false);
   toggle();
+}
+
+// min inclusive, max exclusive
+function getRandomInt(min, max) {
+  min = Math.ceil(min);
+  max = Math.floor(max);
+  return Math.floor(Math.random() * (max - min)) + min; //The maximum is exclusive and the minimum is inclusive
 }
 
 document.addEventListener('DOMContentLoaded', start);
