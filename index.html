@@ -15,7 +15,7 @@ class LaserSystem {
     this.centerX = canvas.width / 2;
     this.centerY = canvas.height / 2;
     const context = canvas.getContext("2d");
-    context.lineWidth = 1;
+    context.lineWidth = 2;
     context.strokeStyle = '#DD0000';
     this.radius = canvas.width / 2;
     this.context = context;
@@ -63,7 +63,7 @@ class BeamBuffer {
   update(usNow) {
     if (this.curIndex === 0) {
       const usDelta = (usNow - this.usStartTime) % this.usPerRevolution;
-      this.values[this.curIndex] = this.computeValue(usDelta / this.usPerRevolution);
+      this.values[this.curIndex] = this.computeValue(usDelta / this.usPerRevolution, usNow);
       this.times[this.curIndex] = usNow;
       this.curIndex++;
     } else {
@@ -71,7 +71,7 @@ class BeamBuffer {
       let usStep = usPrev + this.usStepSize;
       do {
         const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
-        this.values[this.curIndex % this.size] = this.computeValue(usDelta / this.usPerRevolution);
+        this.values[this.curIndex % this.size] = this.computeValue(usDelta / this.usPerRevolution, usStep);
         this.times[this.curIndex % this.size] = usStep;
         usStep += this.usStepSize;
         this.curIndex++;
@@ -81,7 +81,7 @@ class BeamBuffer {
       } while (usStep <= usNow)
     }
   }
-  computeValue(position) {
+  computeValue(position, usTime) {
     throw new Error('not implemented in base class');
   }
 }
@@ -107,7 +107,7 @@ class BeamAngleBuffer extends BeamBuffer {
       index++;
     } while (index < endIndex && this.times[index % this.size] < usEnd);
   }
-  computeValue(position) {
+  computeValue(position, usTime) {
     return position;
   }
 }
@@ -166,40 +166,71 @@ class BeamBufferCursor {
   }
 }
 
-// Compute the on/off status of the laser every few microseconds
-class HalfDiskShow extends BeamBuffer {
-  computeValue(position) {
+class ShowEffect {
+  setup(startPosition, usStartTime) {
+    this.startPosition = startPosition;
+    this.usStartTime = usStartTime;
+  }
+  isLaserOn(position, timeUs) {
+    return true;
+  }
+  isFinished() {
+    return false;
+  }
+}
+
+class HalfDiskEffect extends ShowEffect {
+  isLaserOn(position, time) {
     if (position < .25 || position > .75) {
       return true;
     } else {
       return false;
     }
-  }
+  }  
 }
 
-class SunRayShow extends BeamBuffer {
-  computeValue(position) {
-    if (position < .1) {
-      return true;
-    } else if (position < .2) {
-      return false;
-    } else if (position < .3) {
-      return true;
-    } else if (position < .4) {
-      return false;
-    } else if (position < .5) {
-      return true;
-    } else if (position < .6) {
-      return false;
-    } else if (position < .7) {
-      return true;
-    } else if (position < .8) {
-      return false;
-    } else if (position < .9) {
+class SunRayEffect extends ShowEffect {
+  constructor(beamCount = 7, usRotationTime = 0) {
+    super();
+    this.beamCount = beamCount;
+    this.bucketWidth = 1 / beamCount;
+    this.usRotationTime = usRotationTime;
+  }
+  isLaserOn(position, usTime) {
+    let positionRotationOffset = 0;
+    if (this.usRotationTime) {
+      const delta = (usTime - this.usStartTime) % this.usRotationTime;
+      positionRotationOffset = delta / this.usRotationTime;
+    }
+    position = (position + positionRotationOffset) % 1;
+    position = (position / this.bucketWidth) % 1;
+    if (position < .5) {
       return true;
     } else {
       return false;
     }
+  }  
+}
+
+class LaserShowBuffer extends BeamBuffer {
+  constructor(bufferSize, usStepSize, usStartTime, usPerRevolution) {
+    super(bufferSize, usStepSize, usStartTime, usPerRevolution);
+    this.effects = [];
+    this.currentEffectPos = -1;
+  }
+  addEffect(showEffect) {
+    this.effects = [showEffect]
+  }
+  getNextEffect() {
+    this.currentEffectPos++;
+    return this.effects[0];
+  }
+  computeValue(position, time) {
+    if (!this.effect || this.effect.isFinished()) {
+      this.effect = this.getNextEffect();
+      this.effect.setup(position, time);
+    }
+    return this.effect.isLaserOn(position, time);
   }
 }
 
@@ -208,8 +239,13 @@ function start() {
   let updateInterval = null;
   let drawInterval = null;
   let isStarted = false;
-  const laserSystem = new LaserSystem(canvas1, 25 * 1000, 20 * 1000);
-
+  const usRenderDelay = 30 * 1000;
+  const usRenderWindow = 10 * 1000;
+  const laserSystem = new LaserSystem(canvas1, usRenderDelay, usRenderWindow);
+  const usStartTime = window.performance.now() * 1000;
+  const beamBuffer = new BeamAngleBuffer(size, 17, usStartTime, usPerRevolution);
+  const showBuffer = new LaserShowBuffer(size, 23, usStartTime, usPerRevolution);
+  showBuffer.addEffect(new SunRayEffect(7, 5 * 1000 * 1000));
   function toggle() {
     if (isStarted) {
       clearInterval(updateInterval);
@@ -219,9 +255,6 @@ function start() {
       isStarted = false;
     } else {
       isStarted = true;
-      const usStartTime = window.performance.now() * 1000;
-      const beamBuffer = new BeamAngleBuffer(size, 17, usStartTime, usPerRevolution);
-      const showBuffer = new SunRayShow(size, 23, usStartTime, usPerRevolution);
       updateInterval = setInterval(function() {
         const usNow =  window.performance.now() * 1000;
         showBuffer.update(usNow);
