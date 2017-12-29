@@ -8,13 +8,6 @@
 <script src="effects.js" type="text/javascript"></script>
 <script>
 
-Math.TAU = 2 * Math.PI;
-const RPS = 100;
-const size = 3000;
-const usPerRevolution = (1000 * 1000) / RPS;
-const usRenderDelay = 30 * 1000;
-const usRenderWindow = usPerRevolution;
-
 function start() {
   const canvas1 = document.querySelector("#clock");
   let updateInterval = null;
@@ -44,23 +37,29 @@ function start() {
   ttlBuffer.addEffect(new EmptyEffect(oneSec));
 
   function toggle() {
+    let updateCycleCnt = 0;
     if (isStarted) {
       clearInterval(updateInterval);
       clearInterval(drawInterval);
       updateInterval = null;
       drawInterval = null;
       isStarted = false;
+      updateCycleCnt = 0;
     } else {
       isStarted = true;
       updateInterval = setInterval(function() {
         const usNow =  window.performance.now() * 1000;
         beamBuffer.update(usNow);
-      }, 7);
-      drawInterval = setInterval(function() {
-        const usNow =  window.performance.now() * 1000;
         ttlBuffer.update(usNow);
+        updateCycleCnt++;
+      }, updateIntervalMs);
+      drawInterval = setInterval(function() {
+        // wait until the buffer is full enough for a render cycle
+        if (updateCycleCnt * (updateIntervalMs * 1000) < usRenderWindow + usRenderDelay) {
+          return;
+        }
         laserSystem.draw(beamBuffer, ttlBuffer);
-      }, 17);
+      }, drawIntervalMs);
     }
   }
   canvas1.addEventListener('click', toggle, false);

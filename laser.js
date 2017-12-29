@@ -68,6 +68,10 @@ class BeamBuffer {
         this.times[this.curIndex % this.size] = usStep;
         usStep += this.usStepSize;
         this.curIndex++;
+        if (this.curIndex === this.size) {
+          debug('buffer is now full');
+          this.isBufferFull = true;
+        }
         if (this.curIndex === 2 * this.size) {
           this.curIndex = this.size;
         }
@@ -83,22 +87,76 @@ class BeamBuffer {
 // and 1) every few microseconds
 class BeamAngleBuffer extends BeamBuffer {
   playBeams(usStart, usEnd, cb) {
+    if (usStart < this.usStartTime) {
+      throw new Error('requested a time outside of the buffer window');
+    }
     let endIndex = this.curIndex;
-    let index = this.curIndex;
-    // Find the first beam with time > usStart
+    let index = endIndex;
+
+    // Find the first beam with time > usStart, but watch out for the buffer
+    // edges
+    let isSeeking = true;
     do {
-      index--;
-    } while (this.times[index % this.size] > usStart)
-    index++;
+      if ((index % this.size) === 0) {
+        if (this.isBufferFull) {
+          //debug('buffer is full; wrapping around')
+          index = this.size - 1;
+        } else {
+          isSeeking = false;
+          break;
+        }
+      } else {
+        index--;
+      }
+      const cursorTime = this.times[index % this.size];
+      if (!cursorTime) {
+        throw new Error('empty time')
+      }
+      isSeeking = Boolean(cursorTime > usStart);
+      if (index === endIndex + 1) {
+        throw new Error('buffer underflow');
+      }
+    } while (isSeeking);
+    
+    if (index < endIndex) {
+      index++;
+    } else {
+      throw new Error('invariant violated');
+    }
+
+    const firstTime = this.times[index % this.size];
+    if (!firstTime || firstTime < usStart) {
+      throw new Error('invariant violated');
+    }
+
+    if (firstTime > usEnd) {
+      console.log('no beams found in range');
+    }
+
     // Play the beams until the buffer runs out or a
     // beam with time > usEnd is reached
+    let t0;
     do {
       const angle = this.values[index % this.size];
-      if (angle > -1) {
-        cb(angle, this.times[index % this.size]);
+      const t1 = this.times[index % this.size];
+      if (!t1) {
+        throw new Error('empty time');
       }
+      if (t0 && t1 && t0 > t1) {
+        throw new Error('non-monotonic times');
+      }
+      cb(angle, t1);
       index++;
-    } while (index < endIndex && this.times[index % this.size] < usEnd);
+      t0 = t1;
+      if ((index % this.size) === (endIndex % this.size)) {
+        debug('hit end of range')
+        break;
+      }
+      if (this.times[index % this.size] >= usEnd) {
+        //debug('hit end of window')
+        break;
+      }
+    } while (true);
   }
   computeValue(position, usTime) {
     return position;
@@ -128,52 +186,59 @@ class TtlBuffer extends BeamBuffer {
 }
 
 class BeamBufferCursor {
-  constructor(showBuffer, usStart) {
-    this.buffer = showBuffer;
-    this.cursor = showBuffer.curIndex;
+  constructor(buffer, usStart) {
+    this.buffer = buffer;
+    this.cursor = buffer.curIndex;
     this.seek(usStart);
   }
   decrement() {
-    if ((this.buffer.curIndex % this.buffer.size) === ((this.cursor - 1) % this.buffer.size)) {
-      return false;
+    if ((this.cursor % this.buffer.size) === 0) {
+      if (this.buffer.isBufferFull) {
+        //debug('buffer is full; wrapping around')
+        this.cursor = this.buffer.size - 1;
+      } else {
+        return false;
+      }
+    } else {
+      this.cursor--;
     }
-    this.cursor--;
+    const endOfBuffer = (this.buffer.curIndex + 1) % this.buffer.size;
+    return (endOfBuffer !== (this.cursor % this.buffer.size))
   }
   increment() {
-    if ((this.buffer.curIndex % this.buffer.size) === ((this.cursor + 1) % this.buffer.size)) {
-      return false;
-    }
     this.cursor++;
+    const endOfBuffer = this.buffer.curIndex % this.buffer.size;
+    return (endOfBuffer !== (this.cursor % this.buffer.size));
   }
-  seek(usStep, reentrantCount = 0) {
-    if (this.buffer.times[this.cursor % this.buffer.size] > usStep) {
-      //console.log('case 1');
-      while (this.buffer.times[this.cursor % this.buffer.size] >= usStep) {
+  seek(usTargetTime, reentrantCount = 0) {
+    if (this.buffer.times[this.cursor % this.buffer.size] > usTargetTime) {
+      //debug('case 1');
+      while (this.buffer.times[this.cursor % this.buffer.size] >= usTargetTime) {
         if (!this.decrement()) {
+          console.log('cursor hit end of buffer 1');
           break;
         }
       }
-    } else if (this.buffer.times[this.cursor % this.buffer.size] === usStep) {
-      //console.log('case 2');
-      while (this.buffer.times[this.cursor % this.buffer.size] === usStep) {
+    } else if (this.buffer.times[this.cursor % this.buffer.size] === usTargetTime) {
+      //debug('case 2');
+      while (this.buffer.times[this.cursor % this.buffer.size] === usTargetTime) {
         if (!this.decrement()) {
+          console.log('cursor hit end of buffer 2');
           break;
         }
       }
-    } else if (this.buffer.times[this.cursor % this.buffer.size] < usStep) {     
-      //console.log('case 3');
-      while (this.buffer.times[this.cursor % this.buffer.size] < usStep) {
+    } else if (this.buffer.times[this.cursor % this.buffer.size] < usTargetTime) {     
+      //debug('case 3');
+      while (this.buffer.times[this.cursor % this.buffer.size] < usTargetTime) {
         if (!this.increment()) {
+          console.log('cursor hit end of buffer 3');
           break;
         }
       }
-      // I don't know what's going on here. There's a weird case where
-      // seeking "converges" over 100s of reentrant calls. Not work
-      // troubleshooting because the overall simulation is good enough
-      // but still super weird.
-      if (reentrantCount < 1000) {
-        this.seek(usStep, reentrantCount + 1);
+      if (reentrantCount > 2) {
+        throw new Error('seek is oscillating');
       }
+      this.seek(usTargetTime, reentrantCount + 1);
     }
   }
   isOn(usBeamTime, position) {
