@@ -27,7 +27,8 @@ class LaserSystem {
     const cursor = new BeamBufferCursor(showBuffer, usStart)
     this.context.clearRect(0,0,600,600);
     beamBuffer.playBeams(usStart, usEnd, (position, usTime) => {
-      if (cursor.isOn(usTime, position)) {
+      const isOn = cursor.isOn(usTime, position);
+      if (isOn) {
         this._paintBeam(position);
       }
     });
@@ -244,10 +245,9 @@ class BeamBufferCursor {
   isOn(usBeamTime, position) {
     this.seek(usBeamTime);
     const bufferTime = this.buffer.times[this.cursor % this.buffer.size];
-    // TODO: why is this invariant violated sometimes (expressed as a statment that
-    // should alwasy be false):
-    // bufferTime >= usBeamTime && this.buffer.times[(this.cursor - 1) % this.buffer.size]
-    const isOn = this.buffer.values[this.cursor % this.buffer.size];
-    return isOn;
+    if (bufferTime >= usBeamTime) {
+      throw new Error('invariant violated');
+    }
+    return this.buffer.values[this.cursor % this.buffer.size];
   }
 }

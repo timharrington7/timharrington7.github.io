@@ -15,10 +15,8 @@ function start() {
   let isStarted = false;
   const laserSystem = new LaserSystem(canvas1, usRenderDelay, usRenderWindow);
   const usStartTime = window.performance.now() * 1000;
-  const beamBuffer = new BeamAngleBuffer(size, 17, usStartTime, 
-    usPerRevolution);
-  const ttlBuffer = new TtlBuffer(size, 23, usStartTime, 
-    usPerRevolution);
+  const beamBuffer = new BeamAngleBuffer(size, beamStepSizeUs, usStartTime, usPerRevolution);
+  const ttlBuffer = new TtlBuffer(size, ttlStepSizeUs, usStartTime, usPerRevolution);
 
   const oneSec = 1000 * 1000;
   const threeSec = 3 * oneSec;
