@@ -3,356 +3,45 @@
 <h1>Laser tower simulator</h1>
 <p>Click the canvas to pause the simulation</p>
 <canvas id="clock" width="600" height="600"></canvas>
-
+<script src="settings.js" type="text/javascript"></script>
+<script src="laser.js" type="text/javascript"></script>
+<script src="effects.js" type="text/javascript"></script>
 <script>
+
 Math.TAU = 2 * Math.PI;
 const RPS = 100;
 const size = 3000;
 const usPerRevolution = (1000 * 1000) / RPS;
-
-class LaserSystem {
-  constructor(canvas, usRenderDelay, usRenderWindow) {
-    this.centerX = canvas.width / 2;
-    this.centerY = canvas.height / 2;
-    const context = canvas.getContext("2d");
-    context.lineWidth = 2;
-    context.strokeStyle = '#DD0000';
-    this.radius = canvas.width / 2;
-    this.context = context;
-    this.usRenderWindow = usRenderWindow;
-    this.usRenderDelay = usRenderDelay;
-  }
-  _paintBeam(progress) {
-    const radians = (Math.TAU * progress) - (Math.TAU/4);
-    const len = 2* this.radius;
-    const targetX = this.centerX + Math.cos(radians) * len;
-    const targetY = this.centerY + Math.sin(radians) * len;
-    this.context.beginPath();
-    this.context.moveTo(this.centerX, this.centerY); // Start at the center
-    this.context.lineTo(targetX, targetY); // Draw a line outwards
-    this.context.stroke();
-  }
-  draw(beamBuffer, showBuffer) {
-    const usNow = window.performance.now() * 1000;   
-    const usEnd = usNow - this.usRenderDelay;
-    const usStart = usNow - this.usRenderDelay - this.usRenderWindow;
-    const cursor = new BeamBufferCursor(showBuffer, usStart)
-    this.context.clearRect(0,0,600,600);
-    beamBuffer.playBeams(usStart, usEnd, (position, usTime) => {
-      if (cursor.isOn(usTime, position)) {
-        this._paintBeam(position);
-      }
-    });
-  }
-}
-
-class BeamBuffer {
-  constructor(bufferSize, usStepSize, usStartTime, usPerRevolution) {
-    this.usPerRevolution = usPerRevolution;
-    this.size = bufferSize;
-    this.usStartTime = usStartTime;
-    this.values = [];
-    this.times = [];
-    for (let i = 0; i < size; i++) {
-      this.values[i] = false;
-      this.times[i] = null;
-    }
-    this.curIndex = 0;
-    this.usStepSize = usStepSize;
-  }  
-  update(usNow) {
-    if (this.curIndex === 0) {
-      const usDelta = (usNow - this.usStartTime) % this.usPerRevolution;
-      this.values[this.curIndex] = this.computeValue(
-        usDelta / this.usPerRevolution, usNow);
-      this.times[this.curIndex] = usNow;
-      this.curIndex++;
-    } else {
-      // Limit the previous time to at most 1000 times the step size (to
-      // support pausing/resuming the simulation)
-      const usPrev = Math.max(this.times[(this.curIndex - 1) % this.size],
-        usNow - (this.usStepSize * 1000));
-      let usStep = usPrev + this.usStepSize;
-      do {
-        const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
-        this.values[this.curIndex % this.size] = this.computeValue(
-          usDelta / this.usPerRevolution, usStep);
-        this.times[this.curIndex % this.size] = usStep;
-        usStep += this.usStepSize;
-        this.curIndex++;
-        if (this.curIndex === 2 * this.size) {
-          this.curIndex = this.size;
-        }
-      } while (usStep <= usNow)
-    }
-  }
-  computeValue(position, usTime) {
-    throw new Error('not implemented in base class');
-  }
-}
-
-// Compute the beam progress around the circle (expressed as a value between 0
-// and 1) every few microseconds
-class BeamAngleBuffer extends BeamBuffer {
-  playBeams(usStart, usEnd, cb) {
-    let endIndex = this.curIndex;
-    let index = this.curIndex;
-    // Find the first beam with time > usStart
-    do {
-      index--;
-    } while (this.times[index % this.size] > usStart)
-    index++;
-    // Play the beams until the buffer runs out or a
-    // beam with time > usEnd is reached
-    do {
-      const angle = this.values[index % this.size];
-      if (angle > -1) {
-        cb(angle, this.times[index % this.size]);
-      }
-      index++;
-    } while (index < endIndex && this.times[index % this.size] < usEnd);
-  }
-  computeValue(position, usTime) {
-    return position;
-  }
-}
-
-class BeamBufferCursor {
-  constructor(showBuffer, usStart) {
-    this.buffer = showBuffer;
-    this.cursor = showBuffer.curIndex;
-    this.seek(usStart);
-  }
-  decrement() {
-    if ((this.buffer.curIndex % this.buffer.size) === ((this.cursor - 1) % this.buffer.size)) {
-      return false;
-    }
-    this.cursor--;
-  }
-  increment() {
-    if ((this.buffer.curIndex % this.buffer.size) === ((this.cursor + 1) % this.buffer.size)) {
-      return false;
-    }
-    this.cursor++;
-  }
-  seek(usStep, reentrantCount = 0) {
-    if (this.buffer.times[this.cursor % this.buffer.size] > usStep) {
-      //console.log('case 1');
-      while (this.buffer.times[this.cursor % this.buffer.size] >= usStep) {
-        if (!this.decrement()) {
-          break;
-        }
-      }
-    } else if (this.buffer.times[this.cursor % this.buffer.size] === usStep) {
-      //console.log('case 2');
-      while (this.buffer.times[this.cursor % this.buffer.size] === usStep) {
-        if (!this.decrement()) {
-          break;
-        }
-      }
-    } else if (this.buffer.times[this.cursor % this.buffer.size] < usStep) {     
-      //console.log('case 3');
-      while (this.buffer.times[this.cursor % this.buffer.size] < usStep) {
-        if (!this.increment()) {
-          break;
-        }
-      }
-      // I don't know what's going on here. There's a weird case where
-      // seeking "converges" over 100s of reentrant calls. Not work
-      // troubleshooting because the overall simulation is good enough
-      // but still super weird.
-      if (reentrantCount < 1000) {
-        this.seek(usStep, reentrantCount + 1);
-      }
-    }
-  }
-  isOn(usBeamTime, position) {
-    this.seek(usBeamTime);
-    const bufferTime = this.buffer.times[this.cursor % this.buffer.size];
-    // TODO: why is this invariant violated sometimes (expressed as a statment that
-    // should alwasy be false):
-    // bufferTime >= usBeamTime && this.buffer.times[(this.cursor - 1) % this.buffer.size]
-    const isOn = this.buffer.values[this.cursor % this.buffer.size];
-    return isOn;
-  }
-}
-
-class EmptyEffect {
-  constructor(usDisplayTime) {
-    this.usDisplayTime = usDisplayTime;
-  }
-  setup(startPosition, usStartTime) {
-    this.startPosition = startPosition;
-    this.usStartTime = usStartTime;
-  }
-  isLaserOn(position, usTime) {
-    this.usLastTime = usTime;
-    return false;
-  }
-  isFinished() {
-    return this.usLastTime >= this.usDisplayTime + this.usStartTime;
-  }
-}
-
-class FullEffect extends EmptyEffect {
-  constructor(usDisplayTime) {
-    super(usDisplayTime)
-  }
-  isLaserOn(position, usTime) {
-    this.usLastTime = usTime;
-    return true;
-  }
-}
-
-class SunrayEffect extends EmptyEffect {
-  constructor(usDisplayTime, beamCount, usRotationTime = 0) {
-    super(usDisplayTime);
-    this.usDisplayTime = usDisplayTime;
-    this.beamCount = beamCount;
-    this.bucketWidth = 1 / beamCount;
-    this.usRotationTime = usRotationTime;
-  }
-  isLaserOn(position, usTime) {
-    this.usLastTime = usTime;
-    let rotationProgress = 0;
-    if (this.usRotationTime) {
-      const delta = (usTime - this.usStartTime) % this.usRotationTime;
-      rotationProgress = delta / this.usRotationTime;
-    }
-    position = (position + rotationProgress) % 1;
-    position = (position / this.bucketWidth) % 1;
-    return this.isBeamInOnWindow(position, rotationProgress);
-  }  
-  isBeamInOnWindow(position, rotationProgress) {
-    if (position < .5) {
-      return true;
-    } else {
-      return false;
-    }   
-  }
-  isFinished() {
-    return this.usLastTime >= this.usDisplayTime + this.usStartTime;
-  }
-}
-
-class ReverseSunrayEffect extends SunrayEffect {
-  isLaserOn(position, usStartTime) {
-    return super.isLaserOn(1 - position, usStartTime);
-  }
-  isBeamInOnWindow(position) {
-    if (position < .5) {
-      return false;
-    } else {
-      return true;
-    }   
-  }
-}
-
-class CoverEffect extends EmptyEffect {
-  constructor(usDisplayTime) {
-    super(usDisplayTime);
-    this.usDisplayTime = usDisplayTime;
-  }
-  isLaserOn(position, usTime) {
-    this.usLastTime = usTime;
-    const delta = (usTime - this.usStartTime) % this.usDisplayTime;
-    const rotationProgress = delta / this.usDisplayTime;
-    if (position < rotationProgress) {
-      return true;
-    }
-    return false;
-  }  
-}
-
-class UncoverEffect extends EmptyEffect {
-  constructor(usDisplayTime) {
-    super(usDisplayTime);
-    this.usDisplayTime = usDisplayTime;
-  }
-  isLaserOn(position, usTime) {
-    this.usLastTime = usTime;
-    const delta = (usTime - this.usStartTime) % this.usDisplayTime;
-    const rotationProgress = delta / this.usDisplayTime;
-    if (position < rotationProgress) {
-      return false;
-    }
-    return true;
-  }  
-}
-
-class OpeningSunrayEffect extends SunrayEffect {
-  isBeamInOnWindow(position, rotationProgress) {
-    const delta = (this.usLastTime - this.usStartTime) % this.usDisplayTime;
-    const displayProgress = (delta / this.usDisplayTime) / 2;
-    if ((1 - position) < displayProgress) {
-      return false;
-    }
-    return true;
-  }
-}
-
-class ClosingSunrayEffect extends SunrayEffect {
-  isBeamInOnWindow(position, rotationProgress) {
-    const delta = (this.usLastTime - this.usStartTime) % this.usDisplayTime;
-    const displayProgress = (delta / this.usDisplayTime) / 2;
-    if (position < displayProgress + 0.5) {
-      return true;
-    }
-    return false;
-  }
-}
-
-class LaserShowBuffer extends BeamBuffer {
-  constructor(bufferSize, usStepSize, usStartTime, usPerRevolution) {
-    super(bufferSize, usStepSize, usStartTime, usPerRevolution);
-    this.effects = [];
-    this.currentEffectPos = -1;
-  }
-  addEffect(showEffect) {
-    this.effects.push(showEffect);
-  }
-  getNextEffect() {
-    this.currentEffectPos++;
-    return this.effects[this.currentEffectPos % this.effects.length];
-  }
-  computeValue(position, time) {
-    if (!this.effect || this.effect.isFinished()) {
-      this.effect = this.getNextEffect();
-      this.effect.setup(position, time);
-    }
-    return this.effect.isLaserOn(position, time);
-  }
-}
+const usRenderDelay = 30 * 1000;
+const usRenderWindow = usPerRevolution;
 
 function start() {
   const canvas1 = document.querySelector("#clock");
   let updateInterval = null;
   let drawInterval = null;
   let isStarted = false;
-  const usRenderDelay = 30 * 1000;
-  const usRenderWindow = usPerRevolution;
   const laserSystem = new LaserSystem(canvas1, usRenderDelay, usRenderWindow);
   const usStartTime = window.performance.now() * 1000;
   const beamBuffer = new BeamAngleBuffer(size, 17, usStartTime, 
     usPerRevolution);
-  const showBuffer = new LaserShowBuffer(size, 23, usStartTime, 
+  const ttlBuffer = new TtlBuffer(size, 23, usStartTime, 
     usPerRevolution);
 
   const oneSec = 1000 * 1000;
   const threeSec = 3 * oneSec;
   const fiveSec = 5 * oneSec;
   const rayCount = 7;
-  showBuffer.addEffect(new CoverEffect(fiveSec, fiveSec));
-  showBuffer.addEffect(new FullEffect(oneSec));
-  showBuffer.addEffect(new OpeningSunrayEffect(fiveSec / 2, rayCount, 0))
-  showBuffer.addEffect(new SunrayEffect(fiveSec, rayCount, fiveSec));
-  showBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
-  showBuffer.addEffect(new ReverseSunrayEffect(fiveSec, rayCount, fiveSec));
-  showBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
-  showBuffer.addEffect(new ClosingSunrayEffect(fiveSec / 2, rayCount, 0))
-  showBuffer.addEffect(new FullEffect(oneSec));
-  showBuffer.addEffect(new UncoverEffect(fiveSec, fiveSec));
-  showBuffer.addEffect(new EmptyEffect(oneSec));
+  ttlBuffer.addEffect(new CoverEffect(fiveSec, fiveSec));
+  ttlBuffer.addEffect(new FullEffect(oneSec));
+  ttlBuffer.addEffect(new OpeningSunrayEffect(fiveSec / 2, rayCount, 0))
+  ttlBuffer.addEffect(new SunrayEffect(fiveSec, rayCount, fiveSec));
+  ttlBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
+  ttlBuffer.addEffect(new ReverseSunrayEffect(fiveSec, rayCount, fiveSec));
+  ttlBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
+  ttlBuffer.addEffect(new ClosingSunrayEffect(fiveSec / 2, rayCount, 0))
+  ttlBuffer.addEffect(new FullEffect(oneSec));
+  ttlBuffer.addEffect(new UncoverEffect(fiveSec, fiveSec));
+  ttlBuffer.addEffect(new EmptyEffect(oneSec));
 
   function toggle() {
     if (isStarted) {
@@ -365,12 +54,13 @@ function start() {
       isStarted = true;
       updateInterval = setInterval(function() {
         const usNow =  window.performance.now() * 1000;
-        showBuffer.update(usNow);
         beamBuffer.update(usNow);
       }, 7);
       drawInterval = setInterval(function() {
-        laserSystem.draw(beamBuffer, showBuffer);
-      }, 11);
+        const usNow =  window.performance.now() * 1000;
+        ttlBuffer.update(usNow);
+        laserSystem.draw(beamBuffer, ttlBuffer);
+      }, 17);
     }
   }
   canvas1.addEventListener('click', toggle, false);
