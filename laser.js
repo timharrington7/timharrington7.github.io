@@ -3,10 +3,12 @@ class LaserSystem {
     this.centerX = canvas.width / 2;
     this.centerY = canvas.height / 2;
     const context = canvas.getContext("2d");
-    context.lineWidth = 2;
+    context.lineWidth = laserLineWidth;
     context.strokeStyle = '#DD0000';
     this.radius = canvas.width / 2;
     this.context = context;
+    this.canvasW = canvas.width;
+    this.canvasH = canvas.height;
     this.usRenderWindow = usRenderWindow;
     this.usRenderDelay = usRenderDelay;
   }
@@ -25,7 +27,9 @@ class LaserSystem {
     const usEnd = usNow - this.usRenderDelay;
     const usStart = usNow - this.usRenderDelay - this.usRenderWindow;
     const cursor = new BeamBufferCursor(showBuffer, usStart)
-    this.context.clearRect(0,0,600,600);
+    this.context.clearRect(0, 0,this.canvasW, this.canvasH);
+    this.context.fillStyle = 'black'; 
+    this.context.fillRect(0, 0, this.canvasW, this.canvasH)
     beamBuffer.playBeams(usStart, usEnd, (position, usTime) => {
       const isOn = cursor.isOn(usTime, position);
       if (isOn) {
@@ -57,10 +61,10 @@ class BeamBuffer {
       this.times[this.curIndex] = usNow;
       this.curIndex++;
     } else {
-      // Limit the previous time to at most 1000 times the step size (to
+      // Limit the previous time to at most 3000 times the step size (to
       // support pausing/resuming the simulation)
       const usPrev = Math.max(this.times[(this.curIndex - 1) % this.size],
-        usNow - (this.usStepSize * 1000));
+        usNow - (5000 + usRenderDelay + usRenderWindow));
       let usStep = usPrev + this.usStepSize;
       do {
         const usDelta = (usStep - this.usStartTime) % this.usPerRevolution;
@@ -120,13 +124,13 @@ class BeamAngleBuffer extends BeamBuffer {
     } while (isSeeking);
     
     if (index < endIndex) {
-      index++;
+      //index++;
     } else {
       throw new Error('invariant violated');
     }
 
     const firstTime = this.times[index % this.size];
-    if (!firstTime || firstTime < usStart) {
+    if (!firstTime || (firstTime + 100) < usStart) {
       throw new Error('invariant violated');
     }
 
@@ -237,7 +241,8 @@ class BeamBufferCursor {
         }
       }
       if (reentrantCount > 2) {
-        throw new Error('seek is oscillating');
+        console.log('seek is oscillating');
+        return;
       }
       this.seek(usTargetTime, reentrantCount + 1);
     }
@@ -245,7 +250,7 @@ class BeamBufferCursor {
   isOn(usBeamTime, position) {
     this.seek(usBeamTime);
     const bufferTime = this.buffer.times[this.cursor % this.buffer.size];
-    if (bufferTime >= usBeamTime) {
+    if (bufferTime >= usBeamTime + 100) {
       throw new Error('invariant violated');
     }
     return this.buffer.values[this.cursor % this.buffer.size];

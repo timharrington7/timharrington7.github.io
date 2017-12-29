@@ -22,6 +22,7 @@ function start() {
   const threeSec = 3 * oneSec;
   const fiveSec = 5 * oneSec;
   const rayCount = 7;
+  ttlBuffer.addEffect(new ShimmerEffect(1000 * oneSec));
   ttlBuffer.addEffect(new CoverEffect(fiveSec, fiveSec));
   ttlBuffer.addEffect(new FullEffect(oneSec));
   ttlBuffer.addEffect(new OpeningSunrayEffect(fiveSec / 2, rayCount, 0))
