@@ -182,7 +182,7 @@ class TtlBuffer extends BeamBuffer {
     return this.effects[this.currentEffectPos % this.effects.length];
   }
   computeValue(position, time) {
-    if (!this.effect || this.effect.isFinished()) {
+    if (!this.effect || this.effect.isFinished(time)) {
       this.effect = this.getNextEffect();
       this.effect.setup(position, time);
     }

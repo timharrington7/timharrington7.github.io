@@ -10,8 +10,8 @@ class EmptyEffect {
     this.usLastTime = usTime;
     return false;
   }
-  isFinished() {
-    return this.usLastTime >= this.usDisplayTime + this.usStartTime;
+  isFinished(usTime) {
+    return usTime >= this.usDisplayTime + this.usStartTime;
   }
 }
 
@@ -132,12 +132,12 @@ class HalfEffect extends EmptyEffect {
 class ShimmerEffect extends EmptyEffect {
   constructor(usDisplayTime) {
     super(usDisplayTime);
-    this.shimmerDelayUs = 0.5 * 1000 * 1000;
-    this.shimmerDurationUs = 1 * 1000 * 1000;
-    this.shimmerTransitionUs = 200 * 1000
+    this.shimmerDelayUs = 0 * 1000 * 1000;
+    this.shimmerDurationUs = 3 * 1000 * 1000;
+    this.shimmerTransitionUs = 300 * 1000
     this.shimmerTransition = this.shimmerTransitionUs / this.shimmerDurationUs;
     this.cycleTimeUs = this.shimmerDurationUs + this.shimmerDelayUs;
-    this.darkWindowUs = 70 * 1000;
+    this.darkWindowUs = 40 * 1000;
     this.darkWindow = this.darkWindowUs / this.shimmerDurationUs;
   }
   isLaserOn(position, usTime) {
@@ -172,7 +172,7 @@ class ShimmerEffect extends EmptyEffect {
 // Brightest at position = 0
 // Darkest at position = 1
 function tdim(position) {
-  const cliff = 0.9 * Math.PI / 2;
+  const cliff = 0.8 * Math.PI / 2;
   let x = cliff * position;
   const p = Math.tan(x)/Math.tan(cliff);
   return (1-p) > Math.random();
