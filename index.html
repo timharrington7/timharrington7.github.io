@@ -19,23 +19,24 @@ function start() {
   const ttlBuffer = new TtlBuffer(size, ttlStepSizeUs, usStartTime, usPerRevolution);
 
   const oneSec = 1000 * 1000;
+  const twoSec = 2 * oneSec;
   const threeSec = 3 * oneSec;
   const fiveSec = 5 * oneSec;
   const rayCount = 7;
   //ttlBuffer.addEffect(new CoverEffect(oneSec, oneSec));
   ttlBuffer.addEffect(new ShimmerEffect(6 * oneSec));
+  ttlBuffer.addEffect(new UncoverEffect(twoSec));
+  ttlBuffer.addEffect(new CoverEffect(twoSec));
+  ttlBuffer.addEffect(new OpeningSunrayEffect(oneSec, rayCount, 0))
+  ttlBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
+  ttlBuffer.addEffect(new SunrayEffect(twoSec, rayCount, twoSec));
+  ttlBuffer.addEffect(new ReverseSunrayEffect(twoSec, rayCount, twoSec));
+  ttlBuffer.addEffect(new SunrayEffect(twoSec, rayCount, 0));
+  ttlBuffer.addEffect(new ClosingSunrayEffect(oneSec, rayCount, 0))
+  ttlBuffer.addEffect(new FullEffect(oneSec));
   ttlBuffer.addEffect(new UncoverEffect(oneSec, oneSec));
-  ttlBuffer.addEffect(new CoverEffect(threeSec, threeSec));
-  ttlBuffer.addEffect(new FullEffect(oneSec));
-  ttlBuffer.addEffect(new OpeningSunrayEffect(fiveSec / 2, rayCount, 0))
-  ttlBuffer.addEffect(new SunrayEffect(fiveSec, rayCount, fiveSec));
-  ttlBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
-  ttlBuffer.addEffect(new ReverseSunrayEffect(fiveSec, rayCount, fiveSec));
-  ttlBuffer.addEffect(new SunrayEffect(oneSec, rayCount, 0));
-  ttlBuffer.addEffect(new ClosingSunrayEffect(fiveSec / 2, rayCount, 0))
-  ttlBuffer.addEffect(new FullEffect(oneSec));
-  ttlBuffer.addEffect(new UncoverEffect(fiveSec, fiveSec));
   ttlBuffer.addEffect(new EmptyEffect(oneSec));
+  ttlBuffer.addEffect(new CoverEffect(oneSec, oneSec));
 
   function toggle() {
     let updateCycleCnt = 0;
