@@ -129,36 +129,39 @@ class HalfEffect extends EmptyEffect {
   }
 }
 
-class ShimmerEffect extends EmptyEffect {
-  constructor(usDisplayTime) {
+class FadeAndUnfadeEffect extends EmptyEffect {
+  constructor(usDisplayTime, options = {}) {    
     super(usDisplayTime);
-    this.shimmerDelayUs = 0 * 1000 * 1000;
-    this.shimmerDurationUs = 3 * 1000 * 1000;
-    this.shimmerTransitionUs = 300 * 1000
-    this.shimmerTransition = this.shimmerTransitionUs / this.shimmerDurationUs;
-    this.cycleTimeUs = this.shimmerDurationUs + this.shimmerDelayUs;
+    const {delayUs = -1, transitionUs = -1, invert = false} = options;
+    this.invert = invert;
+    this.fadeDurationUs = usDisplayTime;
+    this.fadeDelayUs = (delayUs === -1) ? 0 * 1000 * 1000 : delayUs;
+    this.transitionUs = (transitionUs === -1) ? 300 * 1000 : transitionUs;
+    this.transitionProgress = this.transitionUs / this.fadeDurationUs;
+    this.cycleTimeUs = this.fadeDurationUs + this.fadeDelayUs;
     this.darkWindowUs = 40 * 1000;
-    this.darkWindow = this.darkWindowUs / this.shimmerDurationUs;
+    this.darkWindowProgress = this.darkWindowUs / this.fadeDurationUs;
+    this.dimFn = ldim;
   }
   isLaserOn(position, usTime) {
     const usNow = window.performance.now() * 1000;
     const elapsedUs = usNow - this.usStartTime;
     const curCycleUs = elapsedUs % this.cycleTimeUs;
-    if (curCycleUs < this.shimmerDelayUs) {
+    if (curCycleUs < this.fadeDelayUs) {
       // not currently shimmering
       return true;
     }
-    const shimmerCycleUs = curCycleUs - this.shimmerDelayUs;
-    const curShimmerProgress = shimmerCycleUs / this.shimmerDurationUs;
+    const shimmerCycleUs = curCycleUs - this.fadeDelayUs;
+    const curShimmerProgress = shimmerCycleUs / this.fadeDurationUs;
     let x, p;
-    if (curShimmerProgress > (this.shimmerTransition + this.darkWindow)) {
+    if (curShimmerProgress > (this.transitionProgress + this.darkWindowProgress)) {
       // gradually increase intensity
-      const windowSize = 1 - this.shimmerTransition - this.darkWindow;
-      const windowStart = this.shimmerTransition + this.darkWindow;
+      const windowSize = 1 - this.transitionProgress - this.darkWindowProgress;
+      const windowStart = this.transitionProgress + this.darkWindowProgress;
       const windowProgress = (curShimmerProgress - windowStart) / windowSize;
       return tdim(1 - windowProgress);
-    } else if (curShimmerProgress < (this.shimmerTransition - this.darkWindow)) {
-      const windowSize = this.shimmerTransition - this.darkWindow;
+    } else if (curShimmerProgress < (this.transitionProgress - this.darkWindowProgress)) {
+      const windowSize = this.transitionProgress - this.darkWindowProgress;
       const windowStart = 0;
       const windowProgress = (curShimmerProgress - windowStart) / windowSize;
       // gradually decrease intensity
@@ -176,4 +179,54 @@ function tdim(position) {
   let x = cliff * position;
   const p = Math.tan(x)/Math.tan(cliff);
   return (1-p) > Math.random();
+}
+
+function ldim(position) {
+  return position > Math.random();
+}
+
+class CompositeEffect extends EmptyEffect {
+  constructor(usDisplayTime) {
+    super(usDisplayTime);
+    this.effects = [];
+    this.currentEffectPos = -1;
+  }
+  addEffect(effect) {
+    this.effects.push(effect);
+  }
+  getNextEffect() {
+    this.currentEffectPos++;
+    return this.effects[this.currentEffectPos % this.effects.length];
+  }
+  isLaserOn(position, usTime) {
+    if (!this.effect || this.effect.isFinished(usTime)) {
+      this.effect = this.getNextEffect();
+      this.effect.setup(position, usTime);
+    }
+    return this.effect.isLaserOn(position, usTime);
+  }
+}
+
+class BeatEffect extends CompositeEffect {
+  constructor(bpm, beatCount, useFade = false) {
+    const beatIntervalUs = (60 / bpm) * 1000 * 1000;
+    if (useFade) {
+      super(beatIntervalUs * beatCount);
+      const fadeOptions = {
+        delayUs: 0,
+        transitionUs: beatIntervalUs / 3
+      };
+      for (let i = 0; i < bpm; i++) {
+        this.addEffect(new FadeAndUnfadeEffect(beatIntervalUs, fadeOptions));
+      }
+    } else {
+      super(beatIntervalUs * (beatCount + 1));
+      const beatFlashDurationUs = 300 * 1000; // 200 ms
+      for (let i = 0; i < bpm + 1; i++) {
+        this.addEffect(new FullEffect(beatFlashDurationUs / 2));
+        this.addEffect(new EmptyEffect(beatIntervalUs - beatFlashDurationUs));
+        this.addEffect(new FullEffect(beatFlashDurationUs));
+      }
+    }
+  }
 }

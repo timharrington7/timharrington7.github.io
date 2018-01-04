@@ -9,7 +9,7 @@ const usPerRevolution = (1000 * 1000) / RPS;
 const usRenderDelay = 30 * 1000;
 const usRenderWindow = usPerRevolution;
 const updateIntervalMs = 7 / scaleFactor;
-const drawIntervalMs = 29;
+const drawIntervalMs = 19;
 const ttlStepSizeUs = 17 / scaleFactor;
 const beamStepSizeUs = 13 / scaleFactor;
 

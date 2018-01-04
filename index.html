@@ -23,8 +23,11 @@ function start() {
   const threeSec = 3 * oneSec;
   const fiveSec = 5 * oneSec;
   const rayCount = 7;
-  //ttlBuffer.addEffect(new CoverEffect(oneSec, oneSec));
-  ttlBuffer.addEffect(new ShimmerEffect(6 * oneSec));
+  ttlBuffer.addEffect(new CoverEffect(oneSec));
+  ttlBuffer.addEffect(new FullEffect(oneSec));
+  ttlBuffer.addEffect(new FadeAndUnfadeEffect(3 * oneSec));
+  ttlBuffer.addEffect(new BeatEffect(128, 3, true));
+  ttlBuffer.addEffect(new FullEffect(oneSec));
   ttlBuffer.addEffect(new UncoverEffect(twoSec));
   ttlBuffer.addEffect(new CoverEffect(twoSec));
   ttlBuffer.addEffect(new OpeningSunrayEffect(oneSec, rayCount, 0))
@@ -34,9 +37,8 @@ function start() {
   ttlBuffer.addEffect(new SunrayEffect(twoSec, rayCount, 0));
   ttlBuffer.addEffect(new ClosingSunrayEffect(oneSec, rayCount, 0))
   ttlBuffer.addEffect(new FullEffect(oneSec));
-  ttlBuffer.addEffect(new UncoverEffect(oneSec, oneSec));
-  ttlBuffer.addEffect(new EmptyEffect(oneSec));
-  ttlBuffer.addEffect(new CoverEffect(oneSec, oneSec));
+  ttlBuffer.addEffect(new UncoverEffect(oneSec));
+  ttlBuffer.addEffect(new EmptyEffect(twoSec));
 
   function toggle() {
     let updateCycleCnt = 0;
