@@ -51,6 +51,10 @@ function wrap( inX ) {
 class NoisySineProcession extends EmptyEffect {
   constructor(usDisplayTime) {
     super(usDisplayTime)
+  }
+  setup(startPosition, usStartTime) {
+    this.startPosition = startPosition;
+    this.usStartTime = usStartTime;
 
     this.scale = Math.PI * 4 * ( randint( 1, 4 ) + 6 * randint( 0, 1 ) );
     this.walkRate = randsgn() * uniform( .1, .4 ) / 100000;
@@ -65,6 +69,7 @@ class NoisySineProcession extends EmptyEffect {
       self.amp[i]   = Math.PI * uniform( 1, 4. )
     }
   }
+
   isLaserOn( inPos, inT ) {
 
     const t = .000001 * (inT - this.usStartTime)
@@ -85,6 +90,10 @@ class NoisySineProcession extends EmptyEffect {
 class SmoothSineProcession extends EmptyEffect {
   constructor(usDisplayTime) {
     super(usDisplayTime)
+  }
+  setup(startPosition, usStartTime) {
+    this.startPosition = startPosition;
+    this.usStartTime = usStartTime;
 
     this.scale = Math.PI * 2 * randint( 1, 6 );
     this.walkRate = randsgn() * uniform( .1, .35 );
@@ -120,6 +129,10 @@ class SmoothSineProcession extends EmptyEffect {
 class RadarScan extends EmptyEffect {
   constructor(usDisplayTime) {
     super(usDisplayTime)
+  }
+  setup(startPosition, usStartTime) {
+    this.startPosition = startPosition;
+    this.usStartTime = usStartTime;
 
     this.cursorSpeed = randsgn() * uniform( .1, .35 );
     this.cursorTrail = uniform( .1, .95 )
@@ -168,6 +181,10 @@ class RadarScan extends EmptyEffect {
 class PulseCannon extends EmptyEffect {
   constructor(usDisplayTime) {
     super(usDisplayTime)
+  }
+  setup(startPosition, usStartTime) {
+    this.startPosition = startPosition;
+    this.usStartTime = usStartTime;
 
     this.switchModes = Math.random() < .3
     this.modeScale = -1
